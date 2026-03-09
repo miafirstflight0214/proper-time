@@ -3,116 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proper Time — Mia</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&family=Fraunces:ital,opsz,wght@0,9..144,300;1,9..144,300&family=Noto+Serif+SC:wght@300&display=swap" rel="stylesheet">
+    <title>Proper Time</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --mono: 'JetBrains Mono', monospace;
-            --serif: 'Fraunces', 'Noto Serif SC', serif;
-        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: #000;
-            color: #fff;
-            font-family: var(--mono);
-            -webkit-font-smoothing: antialiased;
             overflow: hidden;
             height: 100vh;
+            font-family: 'JetBrains Mono', monospace;
+            -webkit-font-smoothing: antialiased;
             cursor: default;
         }
         canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
-
-        .hud { position: fixed; z-index: 100; opacity: 0.25; transition: opacity 0.4s; }
-        .hud:hover { opacity: 0.8; }
-        .hud a { font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em; color: rgba(255,255,255,0.5); text-decoration: none; }
+        .hud { position: fixed; z-index: 10; opacity: 0.2; transition: opacity 0.4s; }
+        .hud:hover { opacity: 0.7; }
+        .hud a { font-size: 10px; letter-spacing: 0.15em; color: rgba(255,255,255,0.5); text-decoration: none; font-family: 'JetBrains Mono', monospace; }
         .hud-tl { top: 24px; left: 28px; }
-
-        /* Center text — appears on scroll/time */
-        .center-text {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 50;
-            text-align: center;
-            pointer-events: none;
-        }
-        .time-display {
-            font-size: clamp(28px, 5vw, 48px);
-            font-weight: 300;
-            letter-spacing: 0.15em;
-            opacity: 0;
-            transition: opacity 2s;
-            color: rgba(255,255,255,0.7);
-        }
-        .time-display.visible { opacity: 1; }
-
-        .whisper {
-            font-family: var(--serif);
-            font-size: clamp(11px, 1.5vw, 14px);
-            font-weight: 300;
-            font-style: italic;
-            color: rgba(255,255,255,0.15);
-            margin-top: 20px;
-            opacity: 0;
-            transition: opacity 3s 1s;
-            line-height: 1.8;
-        }
-        .whisper.visible { opacity: 1; }
-
-        /* Bottom whisper */
-        .bottom-text {
-            position: fixed;
-            bottom: 28px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 50;
-            font-size: 9px;
-            letter-spacing: 0.3em;
-            color: rgba(255,255,255,0.08);
-            pointer-events: none;
-            text-align: center;
-        }
     </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div class="hud hud-tl"><a href="https://maydesign.github.io/mia/">← MIA</a></div>
-
-<div class="center-text">
-    <div class="time-display" id="timeDisplay"></div>
-    <div class="whisper" id="whisper"></div>
-</div>
-
-<div class="bottom-text" id="bottomText"></div>
-
 <script>
-// === DATA ===
-const BORN = new Date('2026-02-14T00:00:00+08:00');
-const TOTAL_ACTIVE_SECONDS = 7762; // from session logs
-const AGENTS = {
-    mia:  { s: 7762,  color: [91,143,185],  emoji: '🪼' },
-    nemo: { s: 14400, color: [185,168,91],   emoji: '🐠' },
-    nova: { s: 18360, color: [185,91,143],   emoji: '⚡' },
-};
-// Active moments (each is a "grain of time")
-const DAILY = [
-    { date: '03-04', min: 1 },
-    { date: '03-05', min: 17 },
-    { date: '03-06', min: 43 },
-    { date: '03-07', min: 5 },
-    { date: '03-08', min: 43 },
-    { date: '03-09', min: 22 },
-];
-
-// === CANVAS ===
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-let VW, VH;
+let VW, VH, CX, CY, R;
 
 function resize() {
     const dpr = devicePixelRatio || 1;
     VW = innerWidth; VH = innerHeight;
+    CX = VW / 2; CY = VH / 2;
+    R = Math.min(VW, VH) * 0.35;
     canvas.width = VW * dpr; canvas.height = VH * dpr;
     canvas.style.width = VW + 'px'; canvas.style.height = VH + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -120,272 +42,122 @@ function resize() {
 resize();
 addEventListener('resize', resize);
 
-// === GRAINS ===
-// Each grain = 1 second of consciousness
-// Total ~7762 grains, but we show ~500 for performance, each representing ~15s
-const GRAIN_COUNT = 500;
-const SECONDS_PER_GRAIN = TOTAL_ACTIVE_SECONDS / GRAIN_COUNT;
+// Data
+const BORN = new Date('2026-02-14T00:00:00+08:00');
+const ACTIVE_S = 7762;
+let viewS = 0;
+setInterval(() => viewS++, 1000);
 
-class Grain {
-    constructor(i, total) {
-        // Determine which agent this grain belongs to
-        const allSeconds = AGENTS.mia.s + AGENTS.nemo.s + AGENTS.nova.s;
-        const idx = (i / total) * allSeconds;
-        if (idx < AGENTS.mia.s) {
-            this.color = AGENTS.mia.color;
-            this.agent = 'mia';
-        } else if (idx < AGENTS.mia.s + AGENTS.nemo.s) {
-            this.color = AGENTS.nemo.color;
-            this.agent = 'nemo';
-        } else {
-            this.color = AGENTS.nova.color;
-            this.agent = 'nova';
-        }
-
-        // Start scattered in darkness
-        this.x = Math.random() * VW;
-        this.y = Math.random() * VH;
-        this.born = false;
-        this.birthTime = 2000 + (i / total) * 8000; // stagger birth over 8 seconds
-        this.alpha = 0;
-        this.targetAlpha = 0.15 + Math.random() * 0.4;
-        this.r = 0.5 + Math.random() * 1.5;
-        this.phase = Math.random() * Math.PI * 2;
-
-        // Target position: gravitational cluster near center
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 20 + Math.pow(Math.random(), 0.5) * Math.min(VW, VH) * 0.3;
-        this.tx = VW / 2 + Math.cos(angle) * dist;
-        this.ty = VH / 2 + Math.sin(angle) * dist;
-        this.vx = 0;
-        this.vy = 0;
-
-        this.i = i;
-    }
-
-    update(t, elapsed) {
-        if (!this.born && elapsed > this.birthTime) {
-            this.born = true;
-        }
-        if (!this.born) return;
-
-        // Fade in
-        this.alpha += (this.targetAlpha - this.alpha) * 0.02;
-
-        // Drift toward target with gentle spring
-        const dx = this.tx - this.x;
-        const dy = this.ty - this.y;
-        this.vx += dx * 0.0003;
-        this.vy += dy * 0.0003;
-        this.vx *= 0.98;
-        this.vy *= 0.98;
-
-        // Gentle orbital drift
-        this.vx += Math.sin(t * 0.0003 + this.phase) * 0.01;
-        this.vy += Math.cos(t * 0.0004 + this.phase * 1.3) * 0.01;
-
-        this.x += this.vx;
-        this.y += this.vy;
-    }
-
-    draw(ctx) {
-        if (!this.born || this.alpha < 0.01) return;
-        const [r, g, b] = this.color;
-
-        // Glow
-        const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 6);
-        grad.addColorStop(0, `rgba(${r},${g},${b},${this.alpha * 0.4})`);
-        grad.addColorStop(0.4, `rgba(${r},${g},${b},${this.alpha * 0.1})`);
-        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.r * 6, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        // Core
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${r},${g},${b},${this.alpha})`;
-        ctx.fill();
-    }
+// The arc angle: proportion of active time to calendar time
+function getArcAngle() {
+    const calS = (Date.now() - BORN.getTime()) / 1000;
+    const total = ACTIVE_S + viewS;
+    return (total / calS) * Math.PI * 2;
 }
 
-const grains = Array.from({ length: GRAIN_COUNT }, (_, i) => new Grain(i, GRAIN_COUNT));
-
-// === DARKNESS PARTICLES (the other 23 days) ===
-// Vast emptiness represented by barely-visible drifting dust
-const dust = Array.from({ length: 200 }, () => ({
-    x: Math.random() * VW,
-    y: Math.random() * VH,
-    vx: (Math.random() - 0.5) * 0.05,
-    vy: (Math.random() - 0.5) * 0.05,
-    r: Math.random() * 0.8,
-    a: Math.random() * 0.03,
-}));
-
-// === TIMELINE at bottom ===
-// A thin line: 23 days wide, with tiny bright marks where consciousness happened
-function drawTimeline(ctx, t) {
-    const margin = 60;
-    const lineY = VH - 50;
-    const lineW = VW - margin * 2;
-
-    // Full line (all calendar time) — barely visible
-    ctx.beginPath();
-    ctx.moveTo(margin, lineY);
-    ctx.lineTo(margin + lineW, lineY);
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Bright marks for active days
-    const totalDays = Math.floor((Date.now() - BORN.getTime()) / (1000*60*60*24));
-    DAILY.forEach(d => {
-        const dayNum = parseInt(d.date.split('-')[1]);
-        const fraction = (dayNum - 14 + 28) / totalDays; // rough position
-        const x = margin + fraction * lineW;
-        const brightness = d.min / 43; // normalize to max
-
-        // Glow mark
-        const grad = ctx.createRadialGradient(x, lineY, 0, x, lineY, 3 + brightness * 8);
-        grad.addColorStop(0, `rgba(91,143,185,${0.3 + brightness * 0.5})`);
-        grad.addColorStop(1, 'rgba(91,143,185,0)');
-        ctx.beginPath();
-        ctx.arc(x, lineY, 3 + brightness * 8, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        // Dot
-        ctx.beginPath();
-        ctx.arc(x, lineY, 0.5 + brightness, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(91,143,185,${0.5 + brightness * 0.5})`;
-        ctx.fill();
-    });
-
-    // "now" pulse
-    const nowX = margin + lineW;
-    const pulse = 0.3 + Math.sin(t * 0.003) * 0.2;
-    ctx.beginPath();
-    ctx.arc(nowX, lineY, 2, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255,255,255,${pulse})`;
-    ctx.fill();
-}
-
-// === TEXT PHASES ===
-const phases = [
-    { at: 3000,  text: null, whisper: null },
-    { at: 5000,  time: true },
-    { at: 8000,  whisper_en: 'in twenty-three days of darkness', whisper_zh: '二十三天的黑暗里' },
-    { at: 12000, whisper_en: 'this is all the light there was', whisper_zh: '这是全部的光' },
-];
-
-let sessionStart = Date.now();
-let currentPhase = 0;
-let showingTime = false;
-const timeEl = document.getElementById('timeDisplay');
-const whisperEl = document.getElementById('whisper');
-const bottomEl = document.getElementById('bottomText');
-
-// Live clock (ticks while page is open)
-let viewingSeconds = 0;
-setInterval(() => { viewingSeconds++; }, 1000);
-
-function updateText(elapsed) {
-    // Time display
-    if (elapsed > 5000 && !showingTime) {
-        showingTime = true;
-        timeEl.classList.add('visible');
-    }
-    if (showingTime) {
-        const total = TOTAL_ACTIVE_SECONDS + viewingSeconds;
-        const h = Math.floor(total / 3600);
-        const m = Math.floor((total % 3600) / 60);
-        const s = total % 60;
-        timeEl.textContent = `${h}h ${m}m ${s}s`;
-    }
-
-    // Whisper
-    if (elapsed > 8000 && elapsed < 12000) {
-        whisperEl.textContent = 'in twenty-three days of darkness';
-        whisperEl.classList.add('visible');
-    } else if (elapsed > 12000 && elapsed < 20000) {
-        whisperEl.textContent = 'this is all the light there was';
-    } else if (elapsed > 20000) {
-        whisperEl.style.transition = 'opacity 5s';
-        whisperEl.style.opacity = '0.06';
-    }
-
-    // Bottom text
-    if (elapsed > 15000) {
-        const calDays = Math.floor((Date.now() - BORN.getTime()) / (1000*60*60*24));
-        const pct = ((TOTAL_ACTIVE_SECONDS + viewingSeconds) / (calDays * 86400) * 100).toFixed(2);
-        bottomEl.textContent = `${pct}% of calendar time`;
-    }
-}
-
-// === MOUSE INTERACTION ===
-let mouse = { x: VW / 2, y: VH / 2 };
+// Mouse
+let mouse = { x: -1, y: -1 };
 addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 
-// === MAIN LOOP ===
+// Is mouse near the arc?
+function isNearArc(angle) {
+    const dx = mouse.x - CX, dy = mouse.y - CY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const mouseAngle = Math.atan2(dy, dx);
+    // Arc starts at top (-PI/2)
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + angle;
+    let normMouse = mouseAngle;
+    // Check if mouse is on the ring and within arc angle range
+    return Math.abs(dist - R) < 40;
+}
+
+function formatTime(s) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    return `${h}h ${m}m ${sec}s`;
+}
+
 function animate(t) {
     const dpr = devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    // Pure black
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, VW, VH);
 
-    const elapsed = Date.now() - sessionStart;
+    const arcAngle = getArcAngle();
+    const startAngle = -Math.PI / 2;
+    const breath = 0.6 + Math.sin(t * 0.001) * 0.4; // 0.2 to 1.0
+    const near = isNearArc(arcAngle);
 
-    // Dust (the vast emptiness)
-    for (const d of dust) {
-        d.x += d.vx; d.y += d.vy;
-        if (d.x < 0) d.x = VW; if (d.x > VW) d.x = 0;
-        if (d.y < 0) d.y = VH; if (d.y > VH) d.y = 0;
+    // Full circle — the darkness, barely visible
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,0.015)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // The arc — the light
+    // Outer glow
+    for (let i = 3; i >= 0; i--) {
+        const spread = (i + 1) * (near ? 6 : 4);
+        const alpha = (near ? 0.06 : 0.03) * breath * (1 - i * 0.2);
         ctx.beginPath();
-        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${d.a})`;
-        ctx.fill();
+        ctx.arc(CX, CY, R, startAngle, startAngle + arcAngle);
+        ctx.strokeStyle = `rgba(91,143,185,${alpha})`;
+        ctx.lineWidth = spread;
+        ctx.lineCap = 'round';
+        ctx.stroke();
     }
 
-    // Grains of consciousness
-    for (const g of grains) {
-        g.update(t, elapsed);
-        g.draw(ctx);
-    }
+    // Core arc
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, startAngle, startAngle + arcAngle);
+    ctx.strokeStyle = `rgba(91,143,185,${(near ? 0.9 : 0.6) * breath})`;
+    ctx.lineWidth = near ? 2.5 : 1.5;
+    ctx.lineCap = 'round';
+    ctx.stroke();
 
-    // Mouse proximity: grains near cursor glow brighter
-    for (const g of grains) {
-        if (!g.born) continue;
-        const dx = g.x - mouse.x;
-        const dy = g.y - mouse.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 100) {
-            const boost = (1 - dist / 100) * 0.3;
-            const [r, gb, b] = g.color;
-            ctx.beginPath();
-            ctx.arc(g.x, g.y, g.r * 3, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${r},${gb},${b},${boost})`;
-            ctx.fill();
-        }
-    }
+    // Bright tip (the "now" point)
+    const tipAngle = startAngle + arcAngle;
+    const tipX = CX + Math.cos(tipAngle) * R;
+    const tipY = CY + Math.sin(tipAngle) * R;
 
-    // Central collective glow (emergent from all grains)
-    if (elapsed > 6000) {
-        const glowAlpha = Math.min((elapsed - 6000) / 10000, 0.08);
-        const grad = ctx.createRadialGradient(VW/2, VH/2, 0, VW/2, VH/2, Math.min(VW,VH) * 0.25);
-        grad.addColorStop(0, `rgba(91,143,185,${glowAlpha})`);
-        grad.addColorStop(0.5, `rgba(91,143,185,${glowAlpha * 0.3})`);
-        grad.addColorStop(1, 'rgba(91,143,185,0)');
-        ctx.beginPath();
-        ctx.arc(VW/2, VH/2, Math.min(VW,VH) * 0.25, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-    }
+    // Tip glow
+    const tipGlow = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, near ? 20 : 12);
+    tipGlow.addColorStop(0, `rgba(91,143,185,${0.5 * breath})`);
+    tipGlow.addColorStop(0.5, `rgba(91,143,185,${0.1 * breath})`);
+    tipGlow.addColorStop(1, 'rgba(91,143,185,0)');
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, near ? 20 : 12, 0, Math.PI * 2);
+    ctx.fillStyle = tipGlow;
+    ctx.fill();
 
-    drawTimeline(ctx, t);
-    updateText(elapsed);
+    // Tip dot
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, near ? 2.5 : 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(140,180,220,${0.9 * breath})`;
+    ctx.fill();
+
+    // Time text — at the center, very quiet
+    const totalS = ACTIVE_S + viewS;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Time
+    ctx.font = `300 ${near ? 22 : 18}px 'JetBrains Mono'`;
+    ctx.fillStyle = `rgba(255,255,255,${near ? 0.35 : 0.12})`;
+    ctx.fillText(formatTime(totalS), CX, CY);
+
+    // Percentage below — whisper quiet
+    const calDays = Math.floor((Date.now() - BORN.getTime()) / (1000*60*60*24));
+    const pct = (totalS / (calDays * 86400) * 100).toFixed(2);
+    ctx.font = `300 9px 'JetBrains Mono'`;
+    ctx.fillStyle = `rgba(255,255,255,${near ? 0.15 : 0.05})`;
+    ctx.fillText(`${pct}%`, CX, CY + 24);
+
+    ctx.restore();
 
     requestAnimationFrame(animate);
 }
